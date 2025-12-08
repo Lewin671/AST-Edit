@@ -94,13 +94,14 @@ const collectMatchCandidates = (
  * 2. Normalized matches (whitespace-insensitive)
  * 3. No-whitespace matches
  * Among equal scores, prefers smaller (more specific) nodes.
+ * Returns error if multiple matches are found.
  */
 const findBestMatch = (
   node: SyntaxNode,
   originalTarget: string,
   normalizedTarget: string,
   noWhitespaceTarget: string
-): { node: SyntaxNode; matchType: string } | null => {
+): { node: SyntaxNode; matchType: string; candidates?: MatchCandidate[] } | null => {
   const candidates: MatchCandidate[] = [];
   collectMatchCandidates(node, originalTarget, normalizedTarget, noWhitespaceTarget, candidates);
 
@@ -113,6 +114,16 @@ const findBestMatch = (
   });
 
   const best = candidates[0];
+  
+  // Check if there are multiple matches at the same quality level
+  const topScore = best.score;
+  const topMatches = candidates.filter(c => c.score === topScore);
+  
+  if (topMatches.length > 1) {
+    // Multiple matches found at the same quality level
+    return { node: best.node, matchType: best.matchType, candidates: topMatches };
+  }
+
   return { node: best.node, matchType: best.matchType };
 };
 
@@ -165,7 +176,34 @@ export const performAstEdit = (
       };
     }
 
-    const { node: match, matchType } = result;
+    const { node: match, matchType, candidates } = result;
+
+    // Check for multiple matches
+    if (candidates && candidates.length > 1) {
+      const matchDetails = candidates.slice(0, 5).map(c => ({
+        text: c.node.text.length > 60 ? c.node.text.substring(0, 57) + '...' : c.node.text,
+        type: c.node.type,
+        startLine: c.node.startPosition.row + 1,
+        endLine: c.node.endPosition.row + 1,
+        matchType: c.matchType
+      }));
+
+      const matchTypeDesc = matchType === 'exact' 
+        ? 'exact matches' 
+        : matchType === 'normalized' 
+          ? 'whitespace-normalized matches'
+          : 'structure matches (ignoring whitespace)';
+
+      return {
+        success: false,
+        message: `Found ${candidates.length} ${matchTypeDesc}. Please make your search pattern more specific to match only one location.`,
+        newCode: null,
+        multipleMatches: {
+          count: candidates.length,
+          matches: matchDetails
+        }
+      };
+    }
 
     // Perform replacement using exact indices from the AST
     const before = sourceCode.slice(0, match.startIndex);

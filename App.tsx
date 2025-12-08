@@ -171,6 +171,37 @@ const App: React.FC = () => {
                  </span>
                </p>
              </div>
+
+             {/* Multiple Matches Warning */}
+             {lastResult && !lastResult.success && lastResult.multipleMatches && (
+               <div className="text-xs bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                 <div className="flex items-start gap-2 mb-2">
+                   <span className="text-yellow-500 text-base">⚠️</span>
+                   <div className="flex-1">
+                     <p className="text-yellow-200 font-semibold mb-1">Multiple Matches Found</p>
+                     <p className="text-yellow-300/80 mb-2">{lastResult.message}</p>
+                   </div>
+                 </div>
+                 <div className="pl-6 space-y-1.5 max-h-48 overflow-y-auto">
+                   <p className="text-yellow-200/70 font-medium mb-1.5">Found {lastResult.multipleMatches.count} matches:</p>
+                   {lastResult.multipleMatches.matches.map((match, idx) => (
+                     <div key={idx} className="bg-black/20 rounded p-2 text-yellow-100/60">
+                       <div className="flex items-center gap-2 mb-1">
+                         <span className="font-mono text-[10px] bg-yellow-500/20 px-1.5 py-0.5 rounded">
+                           {match.type}
+                         </span>
+                         <span className="text-[10px]">
+                           Lines {match.startLine}-{match.endLine}
+                         </span>
+                       </div>
+                       <code className="text-[10px] font-mono block whitespace-pre-wrap break-all">
+                         {match.text}
+                       </code>
+                     </div>
+                   ))}
+                 </div>
+               </div>
+             )}
           </div>
         </div>
 

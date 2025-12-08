@@ -7,6 +7,16 @@ export interface EditResult {
     end: { row: number; column: number; index: number };
   };
   matchType?: 'exact' | 'normalized' | 'no-whitespace';
+  multipleMatches?: {
+    count: number;
+    matches: Array<{
+      text: string;
+      type: string;
+      startLine: number;
+      endLine: number;
+      matchType: 'exact' | 'normalized' | 'no-whitespace';
+    }>;
+  };
 }
 
 export enum EngineStatus {
