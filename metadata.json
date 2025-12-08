@@ -1,0 +1,5 @@
+{
+  "name": "AST Precise Edit",
+  "description": "A lightweight code refactoring tool that uses AST (Abstract Syntax Tree) to locate code blocks by structure rather than exact string matching, allowing for precise whitespace-agnostic replacements.",
+  "requestFramePermissions": []
+}
