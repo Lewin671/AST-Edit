@@ -34,7 +34,7 @@ export const initParser = async (): Promise<void> => {
 
 /**
  * Recursively compares two AST nodes for structural equivalence.
- * Ignores whitespace and comments, focuses on syntax structure.
+ * Ignores whitespace, comments, and trailing commas/semicolons, focuses on syntax structure.
  */
 const compareAstNodes = (node1: SyntaxNode, node2: SyntaxNode): boolean => {
   // Must have the same node type
@@ -45,12 +45,22 @@ const compareAstNodes = (node1: SyntaxNode, node2: SyntaxNode): boolean => {
     return node1.text === node2.text;
   }
   
-  // Filter out non-significant children (comments, whitespace)
+  // Filter out non-significant children (comments, whitespace, and trailing punctuation)
   const getSignificantChildren = (node: SyntaxNode) => {
-    return node.children.filter(child => 
+    const children = node.children.filter(child => 
       !child.type.includes('comment') && 
       child.type !== 'ERROR'
     );
+    
+    // Remove trailing comma or semicolon if it's the last child
+    if (children.length > 0) {
+      const lastChild = children[children.length - 1];
+      if (lastChild.type === ',' || lastChild.type === ';') {
+        return children.slice(0, -1);
+      }
+    }
+    
+    return children;
   };
   
   const children1 = getSignificantChildren(node1);
@@ -111,7 +121,7 @@ const collectMatchCandidates = (
   if (nodeText === targetCode) {
     candidates.push({ node, score: 100, matchType: 'exact' });
   }
-  // AST equivalence match (syntax-aware)
+  // AST equivalence match (syntax-aware, handles trailing punctuation differences)
   else if (areAstEquivalent(nodeText, targetCode)) {
     candidates.push({ node, score: 80, matchType: 'ast' });
   }
