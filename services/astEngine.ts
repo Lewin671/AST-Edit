@@ -12,21 +12,6 @@ const JS_LANG_WASM_URL = 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/
 let parser: IParser | null = null;
 
 /**
- * Normalizes code strings to ignore whitespace differences.
- * Collapses multiple spaces/newlines into a single space and trims.
- */
-const normalize = (str: string): string => {
-  return str.replace(/\s+/g, ' ').trim();
-};
-
-/**
- * Removes all whitespace for strict comparison.
- */
-const removeAllWhitespace = (str: string): string => {
-  return str.replace(/\s+/g, '');
-};
-
-/**
  * Initializes the Tree-sitter parser and loads the JavaScript language.
  */
 export const initParser = async (): Promise<void> => {
@@ -47,10 +32,69 @@ export const initParser = async (): Promise<void> => {
   }
 };
 
+/**
+ * Recursively compares two AST nodes for structural equivalence.
+ * Ignores whitespace and comments, focuses on syntax structure.
+ */
+const compareAstNodes = (node1: SyntaxNode, node2: SyntaxNode): boolean => {
+  // Must have the same node type
+  if (node1.type !== node2.type) return false;
+  
+  // For leaf nodes (terminals), compare text content
+  if (node1.childCount === 0 && node2.childCount === 0) {
+    return node1.text === node2.text;
+  }
+  
+  // Filter out non-significant children (comments, whitespace)
+  const getSignificantChildren = (node: SyntaxNode) => {
+    return node.children.filter(child => 
+      !child.type.includes('comment') && 
+      child.type !== 'ERROR'
+    );
+  };
+  
+  const children1 = getSignificantChildren(node1);
+  const children2 = getSignificantChildren(node2);
+  
+  // Must have same number of significant children
+  if (children1.length !== children2.length) return false;
+  
+  // Recursively compare all children
+  for (let i = 0; i < children1.length; i++) {
+    if (!compareAstNodes(children1[i], children2[i])) {
+      return false;
+    }
+  }
+  
+  return true;
+};
+
+/**
+ * Checks if two code snippets are AST-equivalent by comparing their parsed AST structures.
+ * This ignores formatting differences like whitespace, comments, etc.
+ */
+const areAstEquivalent = (code1: string, code2: string): boolean => {
+  if (!parser) return false;
+  
+  try {
+    const tree1 = parser.parse(code1);
+    const tree2 = parser.parse(code2);
+    
+    const isEquivalent = compareAstNodes(tree1.rootNode, tree2.rootNode);
+    
+    tree1.delete();
+    tree2.delete();
+    
+    return isEquivalent;
+  } catch (e) {
+    return false;
+  }
+};
+
 interface MatchCandidate {
   node: SyntaxNode;
   score: number; // Higher is better
-  matchType: 'exact' | 'normalized' | 'no-whitespace';
+  matchType: 'exact' | 'ast';
 }
 
 /**
@@ -58,32 +102,24 @@ interface MatchCandidate {
  */
 const collectMatchCandidates = (
   node: SyntaxNode,
-  originalTarget: string,
-  normalizedTarget: string,
-  noWhitespaceTarget: string,
+  targetCode: string,
   candidates: MatchCandidate[]
 ): void => {
   const nodeText = node.text;
-  const normalizedNodeText = normalize(nodeText);
-  const noWhitespaceNodeText = removeAllWhitespace(nodeText);
 
   // Exact match (highest priority)
-  if (nodeText === originalTarget) {
+  if (nodeText === targetCode) {
     candidates.push({ node, score: 100, matchType: 'exact' });
   }
-  // Normalized match (ignore extra whitespace)
-  else if (normalizedNodeText === normalizedTarget) {
-    candidates.push({ node, score: 80, matchType: 'normalized' });
-  }
-  // No-whitespace match (most flexible)
-  else if (noWhitespaceNodeText === noWhitespaceTarget) {
-    candidates.push({ node, score: 60, matchType: 'no-whitespace' });
+  // AST equivalence match (syntax-aware)
+  else if (areAstEquivalent(nodeText, targetCode)) {
+    candidates.push({ node, score: 80, matchType: 'ast' });
   }
 
   // Recurse into children
   if (node.children && node.children.length > 0) {
     for (const child of node.children) {
-      collectMatchCandidates(child, originalTarget, normalizedTarget, noWhitespaceTarget, candidates);
+      collectMatchCandidates(child, targetCode, candidates);
     }
   }
 };
@@ -91,19 +127,16 @@ const collectMatchCandidates = (
 /**
  * Finds the best matching node. Prefers:
  * 1. Exact matches
- * 2. Normalized matches (whitespace-insensitive)
- * 3. No-whitespace matches
+ * 2. AST-equivalent matches (syntax structure)
  * Among equal scores, prefers smaller (more specific) nodes.
  * Returns error if multiple matches are found.
  */
 const findBestMatch = (
   node: SyntaxNode,
-  originalTarget: string,
-  normalizedTarget: string,
-  noWhitespaceTarget: string
+  targetCode: string
 ): { node: SyntaxNode; matchType: string; candidates?: MatchCandidate[] } | null => {
   const candidates: MatchCandidate[] = [];
-  collectMatchCandidates(node, originalTarget, normalizedTarget, noWhitespaceTarget, candidates);
+  collectMatchCandidates(node, targetCode, candidates);
 
   if (candidates.length === 0) return null;
 
@@ -162,11 +195,8 @@ export const performAstEdit = (
     };
   }
   
-  const normalizedTarget = normalize(oldString);
-  const noWhitespaceTarget = removeAllWhitespace(oldString);
-  
   try {
-    const result = findBestMatch(tree.rootNode, oldString, normalizedTarget, noWhitespaceTarget);
+    const result = findBestMatch(tree.rootNode, oldString);
 
     if (!result) {
       return {
@@ -190,9 +220,7 @@ export const performAstEdit = (
 
       const matchTypeDesc = matchType === 'exact' 
         ? 'exact matches' 
-        : matchType === 'normalized' 
-          ? 'whitespace-normalized matches'
-          : 'structure matches (ignoring whitespace)';
+        : 'AST-equivalent matches (syntax structure)';
 
       return {
         success: false,
@@ -213,9 +241,7 @@ export const performAstEdit = (
     // Generate descriptive message based on match type
     const matchTypeDesc = matchType === 'exact' 
       ? 'exact match' 
-      : matchType === 'normalized' 
-        ? 'whitespace-normalized match'
-        : 'structure match (ignoring all whitespace)';
+      : 'AST-equivalent match';
 
     return {
       success: true,
