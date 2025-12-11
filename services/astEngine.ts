@@ -132,13 +132,14 @@ const collectMatchCandidates = (
     const parentStart = node.startIndex;
     let sequenceCount = 0;
 
+    // Enumerate contiguous sibling sequences but keep the search bounded to avoid O(n²) blowups
     for (let i = 0; i < node.children.length; i++) {
       const startChild = node.children[i];
       for (let j = i + 1; j < node.children.length; j++) {
         if (sequenceCount >= MAX_SEQUENCE_COMBINATIONS) break;
         const endChild = node.children[j];
 
-        // Avoid duplicating the full parent span
+        // Skip the full parent span because it was already considered as a direct candidate
         if (i === 0 && j === node.children.length - 1) continue;
 
         const combinedText = nodeText.slice(
@@ -146,7 +147,8 @@ const collectMatchCandidates = (
           endChild.endIndex - parentStart
         );
 
-        // Minimal shape is sufficient for replacement slicing; other SyntaxNode properties aren't used here
+        // This synthetic node omits Tree-sitter-only fields (parent/nextSibling/walk/etc.)
+        // because performAstEdit only needs positional data for replacement.
         const combinedNode: SyntaxNode = {
           type: `${node.type}_sequence`,
           text: combinedText,
