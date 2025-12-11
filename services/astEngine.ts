@@ -129,9 +129,13 @@ const collectMatchCandidates = (
   // Also consider sequences of consecutive siblings to handle multi-statement matches
   if (node.children && node.children.length > 1) {
     const parentStart = node.startIndex;
+    const SEQUENCE_LIMIT = 200;
+    let sequenceCount = 0;
+
     for (let i = 0; i < node.children.length; i++) {
       const startChild = node.children[i];
       for (let j = i + 1; j < node.children.length; j++) {
+        if (sequenceCount >= SEQUENCE_LIMIT) break;
         const endChild = node.children[j];
 
         // Avoid duplicating the full parent span
@@ -154,7 +158,9 @@ const collectMatchCandidates = (
         };
 
         addCandidate(combinedNode, combinedText);
+        sequenceCount++;
       }
+      if (sequenceCount >= SEQUENCE_LIMIT) break;
     }
   }
 
