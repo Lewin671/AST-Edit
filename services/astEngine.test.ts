@@ -14,6 +14,7 @@ vi.mock('web-tree-sitter', () => {
   }
 
   const buildTree = (input: string) => {
+    const NEWLINE_LENGTH = 1;
     const lines = input.split('\n');
     const children: SyntaxNode[] = [];
     let offset = 0;
@@ -39,7 +40,7 @@ vi.mock('web-tree-sitter', () => {
         children.push(node);
       }
 
-      const newlineLength = row < lines.length - 1 ? 1 : 0;
+      const newlineLength = row < lines.length - 1 ? NEWLINE_LENGTH : 0;
       offset += length + newlineLength;
       row += 1;
     }

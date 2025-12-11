@@ -149,7 +149,7 @@ const collectMatchCandidates = (
 
         // This synthetic node omits Tree-sitter-only fields (parent/nextSibling/walk/etc.)
         // because performAstEdit only needs positional data for replacement.
-        const combinedNode: SyntaxNode = {
+        const combinedNode = {
           type: `${node.type}_sequence`,
           text: combinedText,
           startIndex: startChild.startIndex,
@@ -158,7 +158,7 @@ const collectMatchCandidates = (
           endPosition: endChild.endPosition,
           children: node.children.slice(i, j + 1),
           childCount: j - i + 1
-        };
+        } as SyntaxNode;
 
         addCandidate(combinedNode, combinedText);
         sequenceCount++;
