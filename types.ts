@@ -1,3 +1,5 @@
+export type MatchType = 'exact' | 'ast' | 'token';
+
 export interface EditResult {
   success: boolean;
   message: string;
@@ -6,7 +8,7 @@ export interface EditResult {
     start: { row: number; column: number; index: number };
     end: { row: number; column: number; index: number };
   };
-  matchType?: 'exact' | 'ast';
+  matchType?: MatchType;
   multipleMatches?: {
     count: number;
     matches: Array<{
@@ -14,7 +16,7 @@ export interface EditResult {
       type: string;
       startLine: number;
       endLine: number;
-      matchType: 'exact' | 'ast';
+      matchType: MatchType;
     }>;
   };
 }

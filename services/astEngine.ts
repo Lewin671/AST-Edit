@@ -1,5 +1,5 @@
 import * as TreeSitterModule from 'web-tree-sitter';
-import { EditResult, SyntaxNode, Parser as IParser } from '../types';
+import { EditResult, SyntaxNode, Parser as IParser, MatchType } from '../types';
 
 // Handle ES module interop: web-tree-sitter might be the default export or the module itself depending on the environment
 const TreeSitter = (TreeSitterModule as any).default || TreeSitterModule;
@@ -101,10 +101,153 @@ const areAstEquivalent = (code1: string, code2: string): boolean => {
   }
 };
 
+/**
+ * Lightweight tokenizer that keeps meaningful JavaScript tokens while ignoring whitespace/comments.
+ * Designed to tolerate incomplete snippets (e.g., missing braces).
+ */
+const tokenizeCode = (code: string): string[] => {
+  const tokens: string[] = [];
+  let i = 0;
+
+  const isWhitespace = (ch: string) => /\s/.test(ch);
+  const isIdentifierStart = (ch: string) => /[A-Za-z_$]/.test(ch);
+  const isIdentifierPart = (ch: string) => /[A-Za-z0-9_$]/.test(ch);
+  const isDigit = (ch: string) => /[0-9]/.test(ch);
+
+  while (i < code.length) {
+    const ch = code[i];
+
+    if (isWhitespace(ch)) {
+      i++;
+      continue;
+    }
+
+    // Line comment
+    if (ch === '/' && code[i + 1] === '/') {
+      i += 2;
+      while (i < code.length && code[i] !== '\n') i++;
+      continue;
+    }
+
+    // Block comment
+    if (ch === '/' && code[i + 1] === '*') {
+      i += 2;
+      while (i < code.length && !(code[i] === '*' && code[i + 1] === '/')) i++;
+      i = Math.min(i + 2, code.length);
+      continue;
+    }
+
+    // String / template literal (tolerates missing closing quote by consuming until end)
+    if (ch === '"' || ch === "'" || ch === '`') {
+      const quote = ch;
+      let token = quote;
+      i++;
+      while (i < code.length) {
+        const current = code[i];
+        token += current;
+        i++;
+        if (current === '\\' && i < code.length) {
+          token += code[i];
+          i++;
+          continue;
+        }
+        if (current === quote) break;
+      }
+      tokens.push(token);
+      continue;
+    }
+
+    // Identifier / keyword
+    if (isIdentifierStart(ch)) {
+      const start = i;
+      i++;
+      while (i < code.length && isIdentifierPart(code[i])) i++;
+      tokens.push(code.slice(start, i));
+      continue;
+    }
+
+    // Number
+    if (isDigit(ch)) {
+      const start = i;
+      let hasDot = false;
+      i++;
+      while (i < code.length) {
+        const current = code[i];
+        if (current === '.') {
+          if (hasDot) break;
+          hasDot = true;
+          i++;
+          continue;
+        }
+        if (/[0-9_]/.test(current)) {
+          i++;
+          continue;
+        }
+        break;
+      }
+      tokens.push(code.slice(start, i));
+      continue;
+    }
+
+    const three = code.slice(i, i + 3);
+    if (['===', '!==', '>>>', '<<=', '>>='].includes(three)) {
+      tokens.push(three);
+      i += 3;
+      continue;
+    }
+
+    const two = code.slice(i, i + 2);
+    if ([
+      '==', '!=', '<=', '>=', '++', '--', '&&', '||', '=>',
+      '<<', '>>', '**', '+=', '-=', '*=', '/=', '%=', '??',
+      '??=', '||=', '&&='
+    ].includes(two)) {
+      tokens.push(two);
+      i += 2;
+      continue;
+    }
+
+    tokens.push(ch);
+    i++;
+  }
+
+  return tokens;
+};
+
+/**
+ * Checks if the target token sequence appears contiguously within the source text's tokens.
+ */
+const isTokenSequenceMatch = (sourceText: string, targetCode: string): boolean => {
+  const targetTokens = tokenizeCode(targetCode);
+  if (targetTokens.length === 0) return false;
+
+  const sourceTokens = tokenizeCode(sourceText);
+  if (targetTokens.length > sourceTokens.length) return false;
+
+  for (let i = 0; i <= sourceTokens.length - targetTokens.length; i++) {
+    let matched = true;
+    for (let j = 0; j < targetTokens.length; j++) {
+      if (sourceTokens[i + j] !== targetTokens[j]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return true;
+  }
+
+  return false;
+};
+
+const describeMatchType = (matchType: MatchType, plural = false): string => {
+  if (matchType === 'exact') return plural ? 'exact matches' : 'exact match';
+  if (matchType === 'ast') return plural ? 'AST-equivalent matches (syntax structure)' : 'AST-equivalent match';
+  return plural ? 'token-sequence matches' : 'token-sequence match';
+};
+
 interface MatchCandidate {
   node: SyntaxNode;
   score: number; // Higher is better
-  matchType: 'exact' | 'ast';
+  matchType: MatchType;
 }
 
 /**
@@ -116,6 +259,7 @@ const collectMatchCandidates = (
   candidates: MatchCandidate[]
 ): void => {
   const nodeText = node.text;
+  const hasHigherPriorityMatch = candidates.some(c => c.score >= 80);
 
   // Exact match (highest priority)
   if (nodeText === targetCode) {
@@ -124,6 +268,10 @@ const collectMatchCandidates = (
   // AST equivalence match (syntax-aware, handles trailing punctuation differences)
   else if (areAstEquivalent(nodeText, targetCode)) {
     candidates.push({ node, score: 80, matchType: 'ast' });
+  }
+  // Token sequence match for incomplete snippets
+  else if (!hasHigherPriorityMatch && isTokenSequenceMatch(nodeText, targetCode)) {
+    candidates.push({ node, score: 60, matchType: 'token' });
   }
 
   // Recurse into children
@@ -138,13 +286,14 @@ const collectMatchCandidates = (
  * Finds the best matching node. Prefers:
  * 1. Exact matches
  * 2. AST-equivalent matches (syntax structure)
+ * 3. Token-sequence matches (for incomplete snippets)
  * Among equal scores, prefers smaller (more specific) nodes.
  * Returns error if multiple matches are found.
  */
 const findBestMatch = (
   node: SyntaxNode,
   targetCode: string
-): { node: SyntaxNode; matchType: string; candidates?: MatchCandidate[] } | null => {
+): { node: SyntaxNode; matchType: MatchCandidate['matchType']; candidates?: MatchCandidate[] } | null => {
   const candidates: MatchCandidate[] = [];
   collectMatchCandidates(node, targetCode, candidates);
 
@@ -211,7 +360,7 @@ export const performAstEdit = (
     if (!result) {
       return {
         success: false,
-        message: "No matching syntax node found. Check if your search pattern corresponds to a valid AST node.",
+        message: "No matching syntax node or token sequence found. Check if your search pattern corresponds to the code structure.",
         newCode: null
       };
     }
@@ -228,13 +377,9 @@ export const performAstEdit = (
         matchType: c.matchType
       }));
 
-      const matchTypeDesc = matchType === 'exact' 
-        ? 'exact matches' 
-        : 'AST-equivalent matches (syntax structure)';
-
       return {
         success: false,
-        message: `Found ${candidates.length} ${matchTypeDesc}. Please make your search pattern more specific to match only one location.`,
+        message: `Found ${candidates.length} ${describeMatchType(matchType, true)}. Please make your search pattern more specific to match only one location.`,
         newCode: null,
         multipleMatches: {
           count: candidates.length,
@@ -249,14 +394,11 @@ export const performAstEdit = (
     const newCode = before + newString + after;
 
     // Generate descriptive message based on match type
-    const matchTypeDesc = matchType === 'exact' 
-      ? 'exact match' 
-      : 'AST-equivalent match';
-
     return {
       success: true,
-      message: `Replaced '${match.type}' (${matchTypeDesc})`,
+      message: `Replaced '${match.type}' (${describeMatchType(matchType)})`,
       newCode,
+      matchType,
       matchRange: {
         start: { ...match.startPosition, index: match.startIndex },
         end: { ...match.endPosition, index: match.endIndex }
