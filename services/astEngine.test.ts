@@ -39,7 +39,8 @@ vi.mock('web-tree-sitter', () => {
         children.push(node);
       }
 
-      offset += length + 1; // include newline
+      const newlineLength = row < lines.length - 1 ? 1 : 0;
+      offset += length + newlineLength;
       row += 1;
     }
 

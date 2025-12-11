@@ -8,6 +8,7 @@ const TreeSitter = (TreeSitterModule as any).default || TreeSitterModule;
 // Ensure the version matches the JS library version (0.20.8) to prevent ABI mismatch
 const TREE_SITTER_WASM_URL = 'https://cdn.jsdelivr.net/npm/web-tree-sitter@0.20.8/tree-sitter.wasm';
 const JS_LANG_WASM_URL = 'https://cdn.jsdelivr.net/npm/tree-sitter-wasms@0.1.13/out/tree-sitter-javascript.wasm';
+const MAX_SEQUENCE_COMBINATIONS = 200; // Prevent quadratic explosion when enumerating sibling sequences
 
 let parser: IParser | null = null;
 
@@ -129,13 +130,12 @@ const collectMatchCandidates = (
   // Also consider sequences of consecutive siblings to handle multi-statement matches
   if (node.children && node.children.length > 1) {
     const parentStart = node.startIndex;
-    const SEQUENCE_LIMIT = 200;
     let sequenceCount = 0;
 
     for (let i = 0; i < node.children.length; i++) {
       const startChild = node.children[i];
       for (let j = i + 1; j < node.children.length; j++) {
-        if (sequenceCount >= SEQUENCE_LIMIT) break;
+        if (sequenceCount >= MAX_SEQUENCE_COMBINATIONS) break;
         const endChild = node.children[j];
 
         // Avoid duplicating the full parent span
@@ -160,7 +160,7 @@ const collectMatchCandidates = (
         addCandidate(combinedNode, combinedText);
         sequenceCount++;
       }
-      if (sequenceCount >= SEQUENCE_LIMIT) break;
+      if (sequenceCount >= MAX_SEQUENCE_COMBINATIONS) break;
     }
   }
 
