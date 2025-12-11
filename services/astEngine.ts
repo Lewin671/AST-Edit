@@ -1,5 +1,5 @@
 import * as TreeSitterModule from 'web-tree-sitter';
-import { EditResult, SyntaxNode, Parser as IParser } from '../types';
+import { EditResult, SyntaxNode, Parser as IParser, MatchType } from '../types';
 
 // Handle ES module interop: web-tree-sitter might be the default export or the module itself depending on the environment
 const TreeSitter = (TreeSitterModule as any).default || TreeSitterModule;
@@ -169,8 +169,22 @@ const tokenizeCode = (code: string): string[] => {
     // Number
     if (isDigit(ch)) {
       const start = i;
+      let hasDot = false;
       i++;
-      while (i < code.length && /[0-9._]/.test(code[i])) i++;
+      while (i < code.length) {
+        const current = code[i];
+        if (current === '.') {
+          if (hasDot) break;
+          hasDot = true;
+          i++;
+          continue;
+        }
+        if (/[0-9_]/.test(current)) {
+          i++;
+          continue;
+        }
+        break;
+      }
       tokens.push(code.slice(start, i));
       continue;
     }
@@ -224,7 +238,7 @@ const isTokenSequenceMatch = (sourceText: string, targetCode: string): boolean =
   return false;
 };
 
-const describeMatchType = (matchType: string, plural = false): string => {
+const describeMatchType = (matchType: MatchType, plural = false): string => {
   if (matchType === 'exact') return plural ? 'exact matches' : 'exact match';
   if (matchType === 'ast') return plural ? 'AST-equivalent matches (syntax structure)' : 'AST-equivalent match';
   return plural ? 'token-sequence matches' : 'token-sequence match';
@@ -233,7 +247,7 @@ const describeMatchType = (matchType: string, plural = false): string => {
 interface MatchCandidate {
   node: SyntaxNode;
   score: number; // Higher is better
-  matchType: 'exact' | 'ast' | 'token';
+  matchType: MatchType;
 }
 
 /**
@@ -245,6 +259,7 @@ const collectMatchCandidates = (
   candidates: MatchCandidate[]
 ): void => {
   const nodeText = node.text;
+  const hasHigherPriorityMatch = candidates.some(c => c.score >= 80);
 
   // Exact match (highest priority)
   if (nodeText === targetCode) {
@@ -255,7 +270,7 @@ const collectMatchCandidates = (
     candidates.push({ node, score: 80, matchType: 'ast' });
   }
   // Token sequence match for incomplete snippets
-  else if (isTokenSequenceMatch(nodeText, targetCode)) {
+  else if (!hasHigherPriorityMatch && isTokenSequenceMatch(nodeText, targetCode)) {
     candidates.push({ node, score: 60, matchType: 'token' });
   }
 
