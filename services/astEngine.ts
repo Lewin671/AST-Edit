@@ -146,6 +146,7 @@ const collectMatchCandidates = (
           endChild.endIndex - parentStart
         );
 
+        // Minimal shape is sufficient for replacement slicing; other SyntaxNode properties aren't used here
         const combinedNode: SyntaxNode = {
           type: `${node.type}_sequence`,
           text: combinedText,
