@@ -6,7 +6,7 @@ export interface EditResult {
     start: { row: number; column: number; index: number };
     end: { row: number; column: number; index: number };
   };
-  matchType?: 'exact' | 'ast';
+  matchType?: 'exact' | 'ast' | 'token';
   multipleMatches?: {
     count: number;
     matches: Array<{
@@ -14,7 +14,7 @@ export interface EditResult {
       type: string;
       startLine: number;
       endLine: number;
-      matchType: 'exact' | 'ast';
+      matchType: 'exact' | 'ast' | 'token';
     }>;
   };
 }
