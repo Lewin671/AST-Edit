@@ -115,15 +115,47 @@ const collectMatchCandidates = (
   targetCode: string,
   candidates: MatchCandidate[]
 ): void => {
-  const nodeText = node.text;
+  const addCandidate = (candidateNode: SyntaxNode, candidateText: string) => {
+    if (candidateText === targetCode) {
+      candidates.push({ node: candidateNode, score: 100, matchType: 'exact' });
+    } else if (areAstEquivalent(candidateText, targetCode)) {
+      candidates.push({ node: candidateNode, score: 80, matchType: 'ast' });
+    }
+  };
 
-  // Exact match (highest priority)
-  if (nodeText === targetCode) {
-    candidates.push({ node, score: 100, matchType: 'exact' });
-  }
-  // AST equivalence match (syntax-aware, handles trailing punctuation differences)
-  else if (areAstEquivalent(nodeText, targetCode)) {
-    candidates.push({ node, score: 80, matchType: 'ast' });
+  const nodeText = node.text;
+  addCandidate(node, nodeText);
+
+  // Also consider sequences of consecutive siblings to handle multi-statement matches
+  if (node.children && node.children.length > 1) {
+    const parentStart = node.startIndex;
+    for (let i = 0; i < node.children.length; i++) {
+      const startChild = node.children[i];
+      for (let j = i + 1; j < node.children.length; j++) {
+        const endChild = node.children[j];
+
+        // Avoid duplicating the full parent span
+        if (i === 0 && j === node.children.length - 1) continue;
+
+        const combinedText = nodeText.slice(
+          startChild.startIndex - parentStart,
+          endChild.endIndex - parentStart
+        );
+
+        const combinedNode: SyntaxNode = {
+          type: `${node.type}_sequence`,
+          text: combinedText,
+          startIndex: startChild.startIndex,
+          endIndex: endChild.endIndex,
+          startPosition: startChild.startPosition,
+          endPosition: endChild.endPosition,
+          children: node.children.slice(i, j + 1),
+          childCount: j - i + 1
+        };
+
+        addCandidate(combinedNode, combinedText);
+      }
+    }
   }
 
   // Recurse into children
